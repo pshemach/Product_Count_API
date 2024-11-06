@@ -1,0 +1,12 @@
+annoy==1.17.3
+ipykernel
+numpy==1.26.4
+ultralytics==8.3.12
+torchvision
+from_root
+Pillow
+pyyaml
+uuid
+flask
+flask_limiter
+-e .
