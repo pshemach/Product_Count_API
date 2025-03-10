@@ -3,6 +3,7 @@ annoy==1.17.3
 numpy==1.26.4
 ultralytics==8.3.12
 fastapi[all]==0.115.11
+faiss-cpu==1.10.0
 from_root
 Pillow
 pyyaml

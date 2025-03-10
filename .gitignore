@@ -162,4 +162,4 @@ cython_debug/
 #.idea/
 
 proobj
-data/test_images
+data
