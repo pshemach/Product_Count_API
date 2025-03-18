@@ -6,14 +6,18 @@ Maps folder IDs to product names
 
 from pathlib import Path
 import json
+from ..config.settings import Settings
 
 def get_mapping_file() -> Path:
     """Get the path to the mapping file"""
-    return Path(__file__).parent / 'product_mapping.json'
+    settings = Settings()
+    return Path(settings.data_dir) / "config" / "product_mapping.json"
 
 def save_mapping(mapping: dict):
     """Update the mapping file with new values"""
     mapping_file = get_mapping_file()
+    # Ensure the config directory exists
+    mapping_file.parent.mkdir(parents=True, exist_ok=True)
     with open(mapping_file, 'w') as f:
         json.dump(mapping, f, indent=4)
 
