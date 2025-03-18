@@ -147,7 +147,7 @@ class ProductMatcher:
     def count_products(
         self,
         detections: List[np.ndarray],
-        image: Image.Image,
+        image: np.ndarray,
         min_confidence: float = 0.5
     ) -> Dict[str, int]:
         """
@@ -155,7 +155,7 @@ class ProductMatcher:
         
         Args:
             detections (List[np.ndarray]): List of YOLO detections
-            image (PIL.Image): Original image
+            image (np.ndarray): Original image as numpy array (BGR or RGB format)
             min_confidence (float): Minimum confidence for YOLO detections
             
         Returns:
@@ -163,6 +163,12 @@ class ProductMatcher:
         """
         product_counts = {}
         product_matches = []
+        
+        # Convert numpy array to PIL Image if needed
+        if isinstance(image, np.ndarray):
+            # Convert BGR to RGB if needed
+            if len(image.shape) == 3 and image.shape[2] == 3:
+                image = Image.fromarray(image)
         
         for bbox in detections:
             if bbox[4] < min_confidence:  # Skip low confidence detections

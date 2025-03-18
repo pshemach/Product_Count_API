@@ -5,14 +5,19 @@ API Endpoints Module
 This module provides the FastAPI endpoints for the product counting API.
 """
 
-from fastapi import FastAPI, File, UploadFile, HTTPException
+import os
+# Set OpenMP environment variable to avoid runtime conflicts
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
+from fastapi import APIRouter, File, UploadFile, HTTPException
 from fastapi.responses import JSONResponse
 from PIL import Image
 import io
 from typing import Dict, List
 import logging
 from pathlib import Path
-
+import numpy as np
+import cv2
 from ..core.detector import ProductDetector
 from ..core.matcher import ProductMatcher
 from ..config.settings import Settings
@@ -21,12 +26,8 @@ from ..config.settings import Settings
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize FastAPI app
-app = FastAPI(
-    title="Product Count API",
-    description="API for counting products in supermarket images",
-    version="0.1.0"
-)
+# Initialize router
+router = APIRouter()
 
 # Initialize settings
 settings = Settings()
@@ -42,7 +43,7 @@ matcher = ProductMatcher(
 )
 
 # Load reference images
-@app.on_event("startup")
+@router.on_event("startup")
 async def startup_event():
     """Load reference images on startup."""
     try:
@@ -56,7 +57,7 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Error loading reference images: {str(e)}")
 
-@app.post("/api/v1/count-products")
+@router.post("/count-products")
 async def count_products(
     image: UploadFile = File(...),
     confidence_threshold: float = None,
@@ -78,9 +79,12 @@ async def count_products(
         contents = await image.read()
         img = Image.open(io.BytesIO(contents)).convert('RGB')
         
+        # Convert PIL Image to numpy array for OpenCV
+        img_array = np.array(img)
+        
         # Detect products
         detections = detector.detect(
-            img,
+            img_array,
             confidence_threshold=confidence_threshold
         )
         
@@ -90,7 +94,7 @@ async def count_products(
         
         product_counts, product_matches = matcher.count_products(
             detections,
-            img
+            img_array
         )
         
         # Prepare response
@@ -118,7 +122,7 @@ async def count_products(
             detail=f"Error processing image: {str(e)}"
         )
 
-@app.post("/api/v1/batch-count-products")
+@router.post("/batch-count-products")
 async def batch_count_products(
     images: List[UploadFile] = File(...),
     confidence_threshold: float = None,
@@ -141,10 +145,11 @@ async def batch_count_products(
         for image in images:
             contents = await image.read()
             img = Image.open(io.BytesIO(contents)).convert('RGB')
+            img_array = np.array(img)
             
             # Detect products
             detections = detector.detect(
-                img,
+                img_array,
                 confidence_threshold=confidence_threshold
             )
             
@@ -154,7 +159,7 @@ async def batch_count_products(
             
             product_counts, product_matches = matcher.count_products(
                 detections,
-                img
+                img_array
             )
             
             # Prepare result for this image
