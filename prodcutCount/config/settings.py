@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     model_path: Optional[str] = str(Path(base_dir) / "data" / "models" / model_name)  # Path to YOLOv9 model weights
     fallback_model: str = "yolov8n.pt"  # Fallback to YOLOv8n if custom model not found
     confidence_threshold: float = 0.25  # Detection confidence threshold
-    similarity_threshold: float = 0.85  # Product matching similarity threshold
+    similarity_threshold: float = 0.6  # Product matching similarity threshold
     
     # Data paths
     data_dir: str = str(Path(base_dir) / "data")
