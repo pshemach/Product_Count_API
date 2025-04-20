@@ -11,11 +11,12 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 import streamlit as st
 import cv2
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 import torch
 import matplotlib.pyplot as plt
 from pathlib import Path
 import shutil
+import io
 
 from prodcutCount.core.detector import ProductDetector
 from prodcutCount.core.matcher import ProductMatcher
@@ -40,20 +41,20 @@ def prepare_reference_directory(settings: Settings, ref_manager: ReferenceManage
     if temp_ref_dir.exists():
         shutil.rmtree(temp_ref_dir)
     temp_ref_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Get current mappings
     ref_dir = Path(settings.reference_images_dir)
-    
+
     try:
         # Organize images by product name
         for ref_id, product_name in ref_manager.get_all_references().items():
             # Clean product name for directory (replace spaces with underscores)
             safe_product_name = product_name.replace(" ", "_")
-            
+
             # Create product directory
             product_dir = temp_ref_dir / safe_product_name
             product_dir.mkdir(exist_ok=True)
-            
+
             # Source directory for this reference
             src_dir = ref_dir / ref_id
             if src_dir.exists() and src_dir.is_dir():
@@ -67,9 +68,9 @@ def prepare_reference_directory(settings: Settings, ref_manager: ReferenceManage
                 if src_file.exists():
                     dest_file = product_dir / f"{ref_id}.jpg"
                     shutil.copy2(str(src_file), str(dest_file))
-        
+
         return str(temp_ref_dir)
-        
+
     except Exception as e:
         if temp_ref_dir.exists():
             shutil.rmtree(temp_ref_dir)
@@ -78,19 +79,19 @@ def prepare_reference_directory(settings: Settings, ref_manager: ReferenceManage
 def draw_detections(image: np.ndarray, product_matches: list) -> np.ndarray:
     """Draw detection boxes and labels on the image"""
     img = image.copy()
-    
+
     for name, sim, (x1, y1, x2, y2) in product_matches:
         # Draw rectangle
         cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        
+
         # Prepare label
         label = f"{name}: {sim:.2f}"
-        
+
         # Get label size
         (label_w, label_h), _ = cv2.getTextSize(
             label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2
         )
-        
+
         # Draw label background
         cv2.rectangle(
             img,
@@ -99,7 +100,7 @@ def draw_detections(image: np.ndarray, product_matches: list) -> np.ndarray:
             (0, 255, 0),
             -1
         )
-        
+
         # Draw label text
         cv2.putText(
             img,
@@ -110,27 +111,27 @@ def draw_detections(image: np.ndarray, product_matches: list) -> np.ndarray:
             (0, 0, 0),
             2
         )
-    
+
     return img
 
 @st.cache_resource
 def initialize_app():
     """Initialize detector, matcher and reference manager"""
     settings = Settings()
-    
+
     with st.spinner('Loading detection model...'):
         detector = ProductDetector(
             model_path=settings.model_path,
             confidence_threshold=settings.confidence_threshold
         )
-    
+
     with st.spinner('Loading matching model...'):
         matcher = ProductMatcher(
             similarity_threshold=settings.similarity_threshold
         )
-    
+
     ref_manager = ReferenceManager(settings.reference_images_dir)
-    
+
     # Prepare reference directory and load references
     with st.spinner('Loading reference images...'):
         try:
@@ -138,21 +139,21 @@ def initialize_app():
             temp_dir = Path(settings.reference_images_dir) / "temp_organized"
             if temp_dir.exists():
                 shutil.rmtree(temp_dir)
-            
+
             # Prepare and load references
             ref_dir = prepare_reference_directory(settings, ref_manager)
             if not Path(ref_dir).exists():
                 raise ValueError("Reference directory not created properly")
-                
+
             matcher.add_reference_images(ref_dir)
-            
+
             # Clean up temporary directory
             shutil.rmtree(ref_dir)
-            
+
         except Exception as e:
             st.error(f"Error loading reference images: {str(e)}")
             raise  # Re-raise to prevent continuing with uninitialized matcher
-    
+
     return detector, matcher, ref_manager
 
 def main():
@@ -170,7 +171,7 @@ def main():
     # Sidebar for settings and reference management
     with st.sidebar:
         st.header("Settings")
-        
+
         # Detection settings
         confidence_threshold = st.slider(
             "Detection Confidence",
@@ -180,7 +181,7 @@ def main():
             step=0.05,
             help="Minimum confidence threshold for object detection"
         )
-        
+
         # Matching settings
         similarity_threshold = st.slider(
             "Matching Similarity",
@@ -190,26 +191,35 @@ def main():
             step=0.05,
             help="Minimum similarity threshold for product matching"
         )
-        
+
         st.divider()
         st.header("Reference Image Management")
-        
+
         uploaded_ref = st.file_uploader(
             "Upload Reference Image",
             type=["jpg", "jpeg", "png"],
             key="ref_upload"
         )
-        
+
         product_name = st.text_input(
             "Product Name",
             key="product_name",
             help="Enter the name for the reference product"
         )
-        
+
         if st.button("Add Reference Image") and uploaded_ref and product_name:
-            file_bytes = np.asarray(bytearray(uploaded_ref.read()), dtype=np.uint8)
-            image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-            
+            # Read file bytes directly
+            file_bytes = uploaded_ref.getvalue()
+
+            # Display the reference image as-is
+            st.image(file_bytes, caption=f"Reference image for {product_name}", width=200)
+
+            # Use PIL to open the image for processing
+            pil_image = Image.open(io.BytesIO(file_bytes)).convert('RGB')
+
+            # Convert to OpenCV format for the reference manager
+            image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+
             try:
                 new_id = ref_manager.add_reference_image(image, product_name)
                 st.success(f"Added reference image for {product_name}")
@@ -217,10 +227,10 @@ def main():
                 st.rerun()
             except Exception as e:
                 st.error(f"Error adding reference image: {str(e)}")
-        
+
         st.divider()
         st.subheader("Current References")
-        
+
         references = ref_manager.get_all_references()
         for ref_id, name in references.items():
             col1, col2 = st.columns([3, 1])
@@ -243,34 +253,46 @@ def main():
         try:
             # Display original and processed images
             col1, col2 = st.columns(2)
-            
+
             with col1:
                 st.subheader("Original Image")
-                image = Image.open(uploaded_file).convert('RGB')
-                st.image(image, use_container_width=True)
-            
+                # Read the file content directly as bytes
+                file_bytes = uploaded_file.getvalue()
+
+                # Display the image directly from bytes to avoid any processing that might cause rotation
+                st.image(file_bytes, use_container_width=True)
+
+                # Open image with PIL for processing (not for display)
+                image = Image.open(io.BytesIO(file_bytes)).convert('RGB')
+
             # Process image
             with st.spinner('Processing image...'):
                 detections = detector.detect(
                     image,
                     confidence_threshold=confidence_threshold
                 )
-                
+
                 matcher.similarity_threshold = similarity_threshold
                 product_counts, product_matches = matcher.count_products(
                     detections,
                     image,
                     min_confidence=confidence_threshold
                 )
-                
+
                 with col2:
                     st.subheader("Detected Products")
+                    # Use the original image for detection results
                     result_image = draw_detections(np.array(image), product_matches)
-                    st.image(result_image, use_container_width=True)
-            
+                    # Convert back to bytes for consistent display
+                    result_pil = Image.fromarray(result_image)
+                    result_bytes = io.BytesIO()
+                    result_pil.save(result_bytes, format='JPEG')
+                    # Display the result image directly from bytes
+                    st.image(result_bytes.getvalue(), use_container_width=True)
+
             # Display results
             st.subheader("Results")
-            
+
             # Metrics
             col3, col4, col5 = st.columns(3)
             with col3:
@@ -279,24 +301,24 @@ def main():
                 st.metric("Total Detections", len(detections))
             with col5:
                 st.metric("Matched Products", len(product_matches))
-            
+
             # Product breakdown
             if product_counts:
                 st.subheader("Product Breakdown")
-                
+
                 # Bar chart
                 fig, ax = plt.subplots(figsize=(10, 5))
                 products = list(product_counts.keys())
                 counts = list(product_counts.values())
-                
+
                 ax.bar(products, counts)
                 ax.set_ylabel("Count")
                 ax.set_title("Product Counts")
                 plt.xticks(rotation=45, ha='right')
                 plt.tight_layout()
-                
+
                 st.pyplot(fig)
-                
+
                 # Detailed table
                 st.dataframe(
                     {
@@ -307,7 +329,7 @@ def main():
                 )
             else:
                 st.info("No products detected in the image.")
-                
+
         except Exception as e:
             st.error(f"Error processing image: {str(e)}")
     else:

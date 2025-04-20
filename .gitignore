@@ -212,4 +212,5 @@ cython_debug/
 #.idea/
 
 proobj
-data
+data/test_output
+data/chroma_product_db

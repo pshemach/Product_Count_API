@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 class ProductMatcher:
     """A class for matching products using feature extraction and similarity search."""
-    
+
     def __init__(
         self,
         similarity_threshold: float = 0.85,
@@ -43,9 +43,9 @@ class ProductMatcher:
         self.reference_features = None
         self.reference_labels = []
         self.index = None
-        
+
         logger.info(f"Initialized ProductMatcher with {model_name} on {device}")
-    
+
     def _initialize_model(self, model_name: str) -> nn.Module:
         """Initialize the feature extraction model."""
         if model_name == "resnet50":
@@ -53,11 +53,11 @@ class ProductMatcher:
             model = nn.Sequential(*list(model.children())[:-1])  # Remove classification layer
         else:
             raise ValueError(f"Unsupported model: {model_name}")
-        
+
         model = model.to(self.device)
         model.eval()
         return model
-    
+
     def _get_transforms(self) -> transforms.Compose:
         """Get image preprocessing transforms."""
         return transforms.Compose([
@@ -68,14 +68,14 @@ class ProductMatcher:
                 std=[0.229, 0.224, 0.225]
             )
         ])
-    
+
     def extract_features(self, image: Image.Image) -> np.ndarray:
         """
         Extract features from an image using the model.
-        
+
         Args:
             image (PIL.Image): Input image
-            
+
         Returns:
             np.ndarray: Feature vector
         """
@@ -84,17 +84,17 @@ class ProductMatcher:
             features = self.model(img_tensor)
             features = features.squeeze().cpu().numpy()
         return features
-    
+
     def add_reference_images(self, reference_dir: str):
         """
         Add reference images for product matching.
-        
+
         Args:
             reference_dir (str): Directory containing reference images organized by product
         """
         features_list = []
         reference_path = Path(reference_dir)
-        
+
         for product_dir in reference_path.iterdir():
             if product_dir.is_dir():
                 product_name = product_dir.name
@@ -106,83 +106,86 @@ class ProductMatcher:
                         self.reference_labels.append(product_name)
                     except Exception as e:
                         logger.error(f"Error processing {img_path}: {str(e)}")
-        
+
         if not features_list:
             raise ValueError("No valid reference images found")
-        
+
         self.reference_features = np.vstack(features_list)
-        
+
         # Create FAISS index for fast similarity search
         self.index = faiss.IndexFlatIP(self.reference_features.shape[1])
         faiss.normalize_L2(self.reference_features)
         self.index.add(self.reference_features)
-        
+
         logger.info(f"Added {len(self.reference_labels)} reference images")
-    
+
     def match_product(self, crop_image: Image.Image) -> Tuple[str, float]:
         """
         Match a single product image with reference database.
-        
+
         Args:
             crop_image (PIL.Image): Cropped image of a single product
-            
+
         Returns:
             Tuple[str, float]: Product name and similarity score
         """
         if self.index is None:
             raise RuntimeError("No reference images added. Call add_reference_images first.")
-        
+
         features = self.extract_features(crop_image)
         features = features.reshape(1, -1)
         faiss.normalize_L2(features)
-        
+
         # Find nearest neighbor
         similarities, indices = self.index.search(features, 1)
         similarity = similarities[0][0]
-        
+
         if similarity >= self.similarity_threshold:
             return self.reference_labels[indices[0][0]], similarity
         return "unknown", similarity
-    
+
     def count_products(
         self,
         detections: List[np.ndarray],
-        image: np.ndarray,
+        image,  # Can be PIL.Image or np.ndarray
         min_confidence: float = 0.5
-    ) -> Dict[str, int]:
+    ) -> Tuple[Dict[str, int], List]:
         """
         Count products from YOLO detections.
-        
+
         Args:
             detections (List[np.ndarray]): List of YOLO detections
-            image (np.ndarray): Original image as numpy array (BGR or RGB format)
+            image: Original image as PIL.Image or numpy array
             min_confidence (float): Minimum confidence for YOLO detections
-            
+
         Returns:
-            Dict[str, int]: Dictionary of product counts
+            Tuple[Dict[str, int], List]: Dictionary of product counts and list of matches
         """
         product_counts = {}
         product_matches = []
-        
-        # Convert numpy array to PIL Image if needed
-        if isinstance(image, np.ndarray):
-            # Convert BGR to RGB if needed
-            if len(image.shape) == 3 and image.shape[2] == 3:
+
+        # Ensure we're working with a PIL Image for consistent handling
+        if not isinstance(image, Image.Image):
+            if isinstance(image, np.ndarray):
+                # Convert numpy array to PIL Image, preserving orientation
                 image = Image.fromarray(image)
-        
+            else:
+                raise TypeError("Image must be a PIL Image or numpy array")
+
         for bbox in detections:
             if bbox[4] < min_confidence:  # Skip low confidence detections
                 continue
-                
+
             try:
                 x1, y1, x2, y2 = map(int, bbox[:4])
+                # Crop the image while preserving orientation
                 crop = image.crop((x1, y1, x2, y2))
                 product_name, similarity = self.match_product(crop)
-                
+
                 if product_name != "unknown":
                     product_counts[product_name] = product_counts.get(product_name, 0) + 1
                     product_matches.append((product_name, similarity, (x1, y1, x2, y2)))
             except Exception as e:
                 logger.error(f"Error processing detection: {str(e)}")
-        
-        return product_counts, product_matches 
+
+        return product_counts, product_matches
