@@ -294,9 +294,10 @@ def main():
             st.subheader("Results")
 
             # Metrics
-            col3, col4, col5 = st.columns(3)
-            with col3:
-                st.metric("Total Products", sum(product_counts.values()))
+            # col3, col4, col5 = st.columns(3)
+            col4, col5 = st.columns(2)
+            # with col3:
+            #     st.metric("Total Products", sum(product_counts.values()))
             with col4:
                 st.metric("Total Detections", len(detections))
             with col5:
